@@ -3,28 +3,20 @@ FROM ubuntu:latest
 
 MAINTAINER sinchb128@gmail.com
 
-# Update apt
-RUN cp /etc/apt/sources.list /etc/apt/sources.list.backup
-COPY sources.list /etc/apt/sources.list
-RUN apt-get update
-
-# Install python lib
-RUN apt-get install -y --upgrade python-setuptools python-dev build-essential \
-                && apt-get install -y --upgrade wget \
-                && apt-get install -y unzip \
-                && wget https://raw.github.com/pypa/pip/master/contrib/get-pip.py \
-                && python get-pip.py \
-                && rm -rf get-pip.py
+RUN apt-get update \
+	&& apt-get install -y --upgrade python-setuptools python-dev build-essential ca-certificates curl \
+    && curl -k https://bootstrap.pypa.io/get-pip.py | python -
 
 # Download source file
-RUN mkdir /root/redispapa
-WORKDIR /root/redispapa
-
-COPY ./ /root/redispapa/
+RUN mkdir /code
+WORKDIR /code
+ADD . /code/
 
 # Install requirements
 RUN pip install -r requirements.txt
 
 EXPOSE 5000
 
-CMD ["python2.7", "/root/redispapa/run.py"]
+CMD ["python2.7", "/code/run.py"]
+
+RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
