@@ -1,4 +1,8 @@
 # coding:utf-8
+
+from gevent import monkey
+monkey.patch_all()
+
 import threading
 import datetime
 import signal
@@ -6,11 +10,11 @@ import sys
 import time
 import redis
 from flask import Flask, render_template, session, request, send_from_directory, make_response
-from flask.ext.socketio import SocketIO, emit, join_room, leave_room, disconnect
-from gevent import monkey
-monkey.patch_all()
-from config import *
+from flask_socketio import SocketIO, emit, join_room, leave_room, disconnect
 
+from six.moves.urllib.parse import urlparse
+
+from config import *
 
 app = Flask(__name__)
 app.debug = True
@@ -22,12 +26,13 @@ __version__ = '0.3'
 
 class RedisInfo(threading.Thread):
     """threads for RedisInfo"""
-    def __init__(self, host, port, password=None):
+    def __init__(self, key, host, port, password=None, db=0):
         super(RedisInfo, self).__init__()
+        self.key = key
         self.host = host
         self.port = port
         self.password = password
-        self.client = redis.StrictRedis(host=self.host, port=self.port, password=self.password)
+        self.client = redis.StrictRedis(host=self.host, port=self.port, password=self.password, db=db)
         self.status = {}
         self.table = []
         self.table_row = []
@@ -59,7 +64,7 @@ class RedisInfo(threading.Thread):
             emit('result', {'data': result, 'm_type': 'info'})
         except Exception as ex:
             emit('result', {'data': ex.message, 'm_type': 'error'})
-            print '\033[93m %s \033[0m' % ex.message
+            print('\033[93m %s \033[0m' % ex.message)
 
     def run(self):
         while 1:
@@ -137,11 +142,11 @@ class RedisInfo(threading.Thread):
                     self.mem_chart.pop(0)
 
                 socketio.emit('response', {
-                    'stat' : self.status, 'table' : table_result, 'server' : '%s:%s' % (self.host, self.port),
+                    'stat' : self.status, 'table' : table_result, 'server' : self.key,
                     'commands' : self.commands_chart, 'cpu' : self.cpu_chart, 'mem' : self.mem_chart
                 })
             except Exception as ex:
-                print ex.message
+                print(str(ex))
             time.sleep(INFO_INTERVAL)
 
     def is_stop(self):
@@ -158,11 +163,13 @@ def index():
 
 @socketio.on('event')
 def client_message(message):
-    servers = [':'.join(s.split(':')[:2]) for s in REDIS_SERVER]
-    emit('servers', {'data': servers})
+    #print("message: ", message)
+    #servers = [':'.join(s.split(':')[:2]) for s in REDIS_SERVER]
+    emit('servers', {'data': list(REDIS_SERVER.keys())})
 
 @socketio.on('command_exec')
 def client_command(message):
+    print("message: ", message)
     args = message['args']
     args = tuple(args.split(','))
     cmd = message['command']
@@ -179,30 +186,28 @@ def client_command(message):
 
 @socketio.on('connect')
 def client_connect():
-    print 'connected ....'
+    print('connected ....')
 
 
 def signal_handler(signal, frame):
     for t in all_thread:
         t.stop()
-    print '\033[93m Now all of info thread are stopped!\033[0m'
+    print('\033[93m Now all of info thread are stopped!\033[0m')
     sys.exit(0)
 
 @socketio.on('disconnect')
 def client_disconnect():
-    print 'Client disconnected'
+    print('Client disconnected')
 
 # start all of the redis info monitor threads
-for r in REDIS_SERVER:
-    r_list = r.split(':')
-    if len(r_list) > 2:
-        r_info = RedisInfo(r_list[0], r_list[1], r_list[2])
-    else:
-        r_info = RedisInfo(r_list[0], r_list[1])
+for key, r in REDIS_SERVER.items():
+    url = urlparse(r)
+    #r_list = r.split(':')
+    db=int(url.path.split('/')[1])
+    r_info = RedisInfo(key, url.hostname, url.port, db=db)
     r_info.setDaemon(True)
     r_info.start()
     all_thread.append(r_info)
-
 
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)
